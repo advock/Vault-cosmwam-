@@ -1,9 +1,12 @@
+use std::str::FromStr;
+
 use crate::bank::{get_max_wager, is_asset_whitelisted, pay_in, pay_out};
+use crate::events::DecreasePositionEvent;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Api, Binary, CosmosMsg, Deps, DepsMut, Env, Event, MessageInfo, Response,
-    StdResult, SubMsg, Uint128, Uint256, WasmMsg,
+    attr, to_binary, Addr, Api, Binary, CosmosMsg, Deps, DepsMut, Env, Event, Int128, MessageInfo,
+    Response, StdResult, SubMsg, Uint128, Uint256, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
@@ -11,16 +14,21 @@ use cw_controllers::Admin;
 
 use crate::error::ContractError;
 use crate::helpers::{
-    _decreaseUsdgAmount, _increasePoolAmount, _increaseUsdgAmount, balance_cw20_tokens,
-    transfer_cw20_tokens, updateCumulativeFundingRate, validate,
+    _collect_margin_fees, _decreaseGuaranteedUsd, _decreasePoolAmount, _decreaseReservedAmount,
+    _decreaseUsdgAmount, _increaseGuaranteedUsd, _increasePoolAmount, _increaseReservedAmount,
+    _increaseUsdgAmount, _validateTokens, balance_cw20_tokens, getBuyUsdgFeeBasisPoints,
+    getSellUsdgFeeBasisPoints, getSwapFeeBasisPoints, get_delta, get_entry_funding_rate,
+    get_max_price, get_min_price, get_next_average_price, get_next_global_short_average_price,
+    get_position_key, token_to_usd_min, transfer_cw20_tokens, updateCumulativeFundingRate,
+    update_token_bal, usdToTokenMax, usd_to_token_min, validate,
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::query::{check_whitelisted_token, query_config};
+use crate::query::{check_whitelisted_token, get_position, query_config};
 use crate::state::{
     Config, Position, State, ADMIN, BUFFERAMOUNT, CONFIG, CUMULATIVEFUNDINGRATE, FEERESERVED,
-    ISLIQUIDATOR, ISMANAGER, LASTFUNDINTIME, MAXGLOBALSHORTSIZE, MAXUSDGAMOUNT,
-    MINPROFITBASISPOINT, POOLAMOUNT, RESERVEDAMOUNTS, SHORTABLETOKEN, STABLETOKEN, STATE,
-    TOKENDECIMAL, TOKENWEIGHT, USDGAMOUNT, WHITELISTEDTOKEN,
+    GLOBALSHORTAVERAGEPRICE, GLOBALSHORTSIZE, ISLIQUIDATOR, ISMANAGER, LASTFUNDINTIME,
+    MAXGLOBALSHORTSIZE, MAXUSDGAMOUNT, MINPROFITBASISPOINT, POOLAMOUNT, POSITION, RESERVEDAMOUNTS,
+    SHORTABLETOKEN, STABLETOKEN, STATE, TOKENDECIMAL, TOKENWEIGHT, USDGAMOUNT, WHITELISTEDTOKEN,
 };
 
 // version info for migration info
@@ -28,11 +36,11 @@ const CONTRACT_NAME: &str = "crates.io:vault";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UNINITIALIZED_ADDRESS: &str = "UNINITIALIZED";
 
-const BASIS_POINTS_DIVISOR: Uint256 = Uint256::from_u128(10000);
+const BASIS_POINTS_DIVISOR: Uint128 = Uint128::new(10000);
 const FUNDING_RATE_PRECISION: Uint256 = Uint256::from_u128(1000000);
-const PRICE_PRECISION: u128 = 10u128.pow(30);
+const PRICE_PRECISION: Uint128 = Uint128::new(10u128.pow(30));
 const MIN_LEVERAGE: Uint256 = Uint256::from_u128(10000);
-const USDG_DECIMALS: Uint256 = Uint256::from_u128(18);
+const USDG_DECIMALS: Uint128 = Uint128::new(6);
 const MAX_FEE_BASIS_POINTS: Uint256 = Uint256::from_u128(500);
 const MAX_LIQUIDATION_FEE_USD: Uint256 = Uint256::from_u128(100);
 const MIN_FUNDING_RATE_INTERVAL: u128 = 1 * 60 * 60; // 1 hour in seconds
@@ -378,10 +386,10 @@ pub fn setTokenConfig(
     api: &dyn Api,
     _info: MessageInfo,
     _token: Addr,
-    _tokenDecimals: Uint256,
+    _tokenDecimals: Uint128,
     _tokenWeight: Uint256,
     _minProfitBps: Uint256,
-    _maxUsdgAmount: Uint256,
+    _maxUsdgAmount: Uint128,
     _isStable: bool,
     _isShortable: bool,
 ) -> Result<Response, ContractError> {
@@ -481,7 +489,7 @@ pub fn setUsdgAmount(
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
-    _amount: Uint256,
+    _amount: Uint128,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender)?;
 
@@ -533,13 +541,13 @@ pub fn directPoolDeposit(
 }
 
 pub fn buyUSDG(
-    _deps: DepsMut,
+    mut _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
     _receiver: Addr,
 ) -> Result<Response, ContractError> {
-    let config = CONFIG.load(_deps.storage)?;
+    let mut config = CONFIG.load(_deps.storage)?;
     validate(config.in_manager_mode, "err");
 
     let whitelistedtoken = WHITELISTEDTOKEN.load(_deps.storage, _token.clone())?;
@@ -549,14 +557,184 @@ pub fn buyUSDG(
 
     CONFIG.save(_deps.storage, &config)?;
 
-    let tokenAmount: Uint128 = balance_cw20_tokens(&_deps, _env, _token)?;
+    let tokenAmount: Uint128 = balance_cw20_tokens(&_deps.branch(), _env.clone(), _token.clone())?;
     validate(tokenAmount > Uint128::zero(), "err");
 
-    let should_update = _updateCumulativeFundingRate(_deps, _env, _info, _token, _token)?;
+    let should_update = _updateCumulativeFundingRate(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        _token.clone(),
+    )?;
+
+    let price: Uint128 =
+        get_min_price(_deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
+
+    let mut usdgAmount: Uint128 = (tokenAmount * price) / PRICE_PRECISION;
+
+    usdgAmount = adjust_decimal(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        config.usdg.clone(),
+        usdgAmount,
+    )?;
+
+    validate(usdgAmount > Uint128::zero(), "err");
+
+    let feeBasisPoints: Uint128 = getBuyUsdgFeeBasisPoints(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        usdgAmount,
+    )?;
+
+    let amountAfterFees: Uint128 = collect_fees(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        tokenAmount,
+        feeBasisPoints,
+    )?;
+
+    let mut mintAmount: Uint128 = (amountAfterFees * price) / PRICE_PRECISION;
+    mintAmount = adjust_decimal(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        config.usdg.clone(),
+        mintAmount,
+    )?;
+
+    _increaseUsdgAmount(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        mintAmount,
+    )?;
+    _increasePoolAmount(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        amountAfterFees,
+    )?;
+    let attributes = Event::new("BuyUSDG")
+        .add_attribute("action", "BuyUSDG")
+        .add_attribute("receiver", _receiver.as_str())
+        .add_attribute("token", _token.as_str())
+        .add_attribute("token_amount", usdgAmount.to_string())
+        .add_attribute("mint_amount", mintAmount.to_string())
+        .add_attribute("fee_basis_points", feeBasisPoints.to_string());
+
+    Ok(Response::new().add_event(attributes))
+}
+
+pub fn sellUSDG(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+    _receiver: Addr,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(_deps.storage)?;
+    validate(config.in_manager_mode, "err");
+
+    let whitelistedtoken = WHITELISTEDTOKEN.load(_deps.storage, _token.clone())?;
+    validate(whitelistedtoken, "err")?;
+
+    config.use_swap_pricing = true;
+
+    CONFIG.save(_deps.storage, &config)?;
+
+    let usdgAmount: Uint128 =
+        balance_cw20_tokens(&_deps.branch(), _env.clone(), config.usdg.clone())?;
+    validate(usdgAmount > Uint128::zero(), "err");
+
+    let should_update = _updateCumulativeFundingRate(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        _token.clone(),
+    )?;
+
+    let redemptionAmount: Uint128 = getRedemptionAmount(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        usdgAmount,
+    )?;
+    validate(redemptionAmount > Uint128::zero(), "errr");
+
+    _decreaseUsdgAmount(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        usdgAmount,
+    )?;
+    _decreasePoolAmount(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        redemptionAmount,
+    )?;
+
+    update_token_bal(_deps.branch(), _env.clone(), _info.clone(), config.usdg)?;
+
+    let feeBasisPoints: Uint128 = getSellUsdgFeeBasisPoints(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        usdgAmount,
+    )?;
+
+    let amountAfterFees: Uint128 = collect_fees(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _token.clone(),
+        redemptionAmount,
+        feeBasisPoints,
+    )?;
+
+    validate(amountAfterFees > Uint128::zero(), "err");
+    let mut res = Response::new();
+
+    let state = STATE.load(_deps.storage)?;
+
+    res = res.add_submessage(pay_out(
+        _env.clone(),
+        state.bank_addr.clone(),
+        0,
+        _token.clone().into_string(),
+        _receiver.clone(),
+        amountAfterFees.u128(),
+    ));
+
+    let attributes = Event::new("BuyUSDG")
+        .add_attribute("action", "BuyUSDG")
+        .add_attribute("receiver", _receiver.as_str())
+        .add_attribute("token", _token.as_str())
+        .add_attribute("token_amount", usdgAmount.to_string())
+        .add_attribute("burn_amount", amountAfterFees.to_string())
+        .add_attribute("fee_basis_points", feeBasisPoints.to_string());
+
+    Ok(Response::new().add_event(attributes))
 }
 
 pub fn _updateCumulativeFundingRate(
-    _deps: DepsMut,
+    mut _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _collateralToken: Addr,
@@ -564,36 +742,55 @@ pub fn _updateCumulativeFundingRate(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(_deps.storage)?;
     let fundinginterval = config.funding_interval;
-    let should_update = updateCumulativeFundingRate(_deps, _env, _info)?;
+    let should_update = updateCumulativeFundingRate(_deps.branch(), _env.clone(), _info.clone())?;
     if (!should_update) {
         return Err(ContractError::Unauthorized {});
     }
-    let lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken)?;
+    let lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken.clone())?;
     let time_stamp: u128;
     if lastFundingTimes == 0 {
-        time_stamp = _env.block.time.seconds() as u128;
-        LASTFUNDINTIME.save(_deps.storage, _collateralToken, &time_stamp);
+        time_stamp = _env.clone().block.time.seconds() as u128;
+        LASTFUNDINTIME.save(
+            _deps.branch().storage,
+            _collateralToken.clone(),
+            &time_stamp,
+        );
         return Ok(Response::new());
     }
 
-    if (lastFundingTimes + fundinginterval) > _env.block.time.seconds() as u128 {
+    if (lastFundingTimes + fundinginterval) > _env.clone().block.time.seconds() as u128 {
         return Err(ContractError::Unauthorized {});
     }
 
-    CONFIG.save(_deps.storage, &config)?;
+    CONFIG.save(_deps.branch().storage, &config)?;
 
-    let fundingRate = getNextFundingRate(_deps, _env, _info, _collateralToken)?;
+    let fundingRate = getNextFundingRate(
+        _deps.branch(),
+        _env.clone(),
+        _info,
+        _collateralToken.clone(),
+    )?;
 
-    let mut cumulativeFundingRates = CUMULATIVEFUNDINGRATE.load(_deps.storage, _collateralToken)?;
+    let mut cumulativeFundingRates =
+        CUMULATIVEFUNDINGRATE.load(_deps.storage, _collateralToken.clone())?;
     cumulativeFundingRates = cumulativeFundingRates + fundingRate;
-    CUMULATIVEFUNDINGRATE.save(_deps.storage, _collateralToken, &cumulativeFundingRates);
+    CUMULATIVEFUNDINGRATE.save(
+        _deps.branch().storage,
+        _collateralToken.clone(),
+        &cumulativeFundingRates,
+    );
 
-    let mut lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken)?;
-    lastFundingTimes = _env.block.time.seconds() as u128;
-    LASTFUNDINTIME.save(_deps.storage, _collateralToken, &lastFundingTimes);
+    let mut lastFundingTimes =
+        LASTFUNDINTIME.load(_deps.branch().storage, _collateralToken.clone())?;
+    lastFundingTimes = _env.clone().block.time.seconds() as u128;
+    LASTFUNDINTIME.save(
+        _deps.branch().storage,
+        _collateralToken.clone(),
+        &lastFundingTimes,
+    );
 
     let event = Event::new("IncreasePoolAmount")
-        .add_attribute("token", _collateralToken.as_str())
+        .add_attribute("token", _collateralToken.clone().as_str())
         .add_attribute("amount", cumulativeFundingRates.to_string());
 
     Ok(Response::new().add_event(event))
@@ -605,7 +802,7 @@ pub fn getNextFundingRate(
     _info: MessageInfo,
     _collateralToken: Addr,
 ) -> Result<Uint128, ContractError> {
-    let lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken)?;
+    let lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken.clone())?;
     let config = CONFIG.load(_deps.storage)?;
     let fundinginterval = config.funding_interval;
 
@@ -615,25 +812,453 @@ pub fn getNextFundingRate(
 
     let intervals: u128 =
         ((_env.block.time.seconds() as u128) - lastFundingTimes) / fundinginterval;
-    let poolAmount = POOLAMOUNT.load(_deps.storage, _collateralToken)?;
+    let poolAmount = POOLAMOUNT.load(_deps.storage, _collateralToken.clone())?;
     if poolAmount == Uint128::zero() {
         return Ok(Uint128::zero());
     }
 
     let _fundingRateFactor: u128;
 
-    let stableToken = STABLETOKEN.load(_deps.storage, _collateralToken)?;
+    let stableToken = STABLETOKEN.load(_deps.storage, _collateralToken.clone())?;
 
     if stableToken {
         _fundingRateFactor = config.stable_funding_rate_factor;
     } else {
         _fundingRateFactor = config.funding_rate_factor
     }
-    let reserve_amount = RESERVEDAMOUNTS.load(_deps.storage, _collateralToken)?;
+    let reserve_amount = RESERVEDAMOUNTS.load(_deps.storage, _collateralToken.clone())?;
 
     let rate = (_fundingRateFactor * (reserve_amount.u128()) * intervals);
 
     Ok(Uint128::new(rate) / poolAmount)
+}
+
+pub fn adjust_decimal(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _tokenDev: Addr,
+    _tokenMul: Addr,
+    _amount: Uint128,
+) -> Result<Uint128, ContractError> {
+    let decimalsDiv: Uint128;
+    let config = CONFIG.load(_deps.storage)?;
+    if _tokenDev == config.usdg {
+        decimalsDiv = USDG_DECIMALS
+    } else {
+        decimalsDiv = TOKENDECIMAL.load(_deps.storage, _tokenDev)?;
+    }
+
+    let decimalsMul: Uint128;
+
+    if _tokenMul == config.usdg {
+        decimalsMul = USDG_DECIMALS
+    } else {
+        decimalsMul = TOKENDECIMAL.load(_deps.storage, _tokenMul)?;
+    }
+
+    let res: Uint128 = (_amount * Uint128::new(10).pow(decimalsMul.u128() as u32))
+        / Uint128::new(10).pow(decimalsDiv.u128() as u32);
+
+    Ok(res)
+}
+pub fn collect_fees(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+    _amount: Uint128,
+    _fee_basis_points: Uint128,
+) -> Result<Uint128, ContractError> {
+    let afterFeeAmount: Uint128 =
+        _amount * (BASIS_POINTS_DIVISOR - _fee_basis_points) / BASIS_POINTS_DIVISOR;
+    let feeAmount: Uint128 = _amount - afterFeeAmount;
+
+    let feeReserves = FEERESERVED.load(_deps.storage, _token)?;
+
+    Ok((feeReserves))
+}
+
+pub fn getRedemptionAmount(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+    _usdgAmount: Uint128,
+) -> Result<Uint128, ContractError> {
+    let price: Uint128 =
+        get_max_price(_deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
+    let redemptionAmount: Uint128 = (_usdgAmount * PRICE_PRECISION) / price;
+    let config = CONFIG.load(_deps.storage)?;
+
+    let res = adjust_decimal(
+        _deps,
+        _env.clone(),
+        _info.clone(),
+        config.usdg,
+        _token.clone(),
+        redemptionAmount,
+    )?;
+    Ok(res)
+}
+
+pub fn swap(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _tokenIn: Addr,
+    _tokenOut: Addr,
+    _receiver: Addr,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(_deps.storage)?;
+    let whitelistedTokensIn = WHITELISTEDTOKEN.load(_deps.storage, _tokenIn.clone())?;
+    let whitelistedTokensOut = WHITELISTEDTOKEN.load(_deps.storage, _tokenOut.clone())?;
+
+    validate(config.is_swap_enabled, "err")?;
+    validate(whitelistedTokensIn, "err")?;
+    validate(whitelistedTokensOut, "err")?;
+    validate(_tokenIn != _tokenOut, "err")?;
+
+    config.use_swap_pricing = true;
+    _updateCumulativeFundingRate(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenIn.clone(),
+        _tokenIn.clone(),
+    )?;
+    _updateCumulativeFundingRate(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenOut.clone(),
+        _tokenOut.clone(),
+    )?;
+
+    let amountIn: Uint128 = balance_cw20_tokens(&_deps.branch(), _env.clone(), _tokenIn.clone())?;
+    validate(amountIn > Uint128::zero(), "err")?;
+
+    let priceIn = get_min_price(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenIn.clone(),
+    )?;
+    let priceOut = get_max_price(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenOut.clone(),
+    )?;
+
+    let mut amountOut: Uint128 = amountIn * priceIn / priceOut;
+
+    amountOut = adjust_decimal(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenIn.clone(),
+        _tokenOut.clone(),
+        amountOut,
+    )?;
+
+    let mut usdgAmount: Uint128 = amountIn * priceIn / PRICE_PRECISION;
+    usdgAmount = adjust_decimal(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenIn.clone(),
+        config.clone().usdg,
+        usdgAmount,
+    )?;
+
+    let feeBasisPoints: Uint128 = getSwapFeeBasisPoints(
+        _deps.branch(),
+        _env.clone(),
+        _info.clone(),
+        _tokenIn.clone(),
+        _tokenOut.clone(),
+        usdgAmount,
+    )?;
+
+    CONFIG.save(_deps.storage, &config)?;
+    Ok(Response::new())
+}
+
+pub fn increasePosition(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _sizeDelta: Uint128,
+    _isLong: bool,
+) -> Result<Response, ContractError> {
+    let cofig = CONFIG.load(_deps.storage)?;
+
+    validate(cofig.is_leverage_enabled, "err")?;
+    _validateTokens(&_deps, _collateralToken, _indexToken, _isLong)?;
+
+    _updateCumulativeFundingRate(_deps, _env, _info, _collateralToken, _indexToken)?;
+    let key = get_position_key(_account, _collateralToken, _indexToken, _isLong);
+
+    let price: Uint128;
+
+    if _isLong {
+        price = get_max_price(_deps, _env, _info, _indexToken)?;
+    } else {
+        price = get_min_price(_deps, _env, _info, _indexToken)?;
+    }
+
+    let mut position = get_position(_deps.as_ref(), key)?;
+
+    if position.size == Uint128::zero() {
+        position.averagePrice = price;
+    }
+    if (position.size > Uint128::zero() && _sizeDelta > Uint128::zero()) {
+        position.averagePrice = get_next_average_price(
+            _deps,
+            _env,
+            _info,
+            &_indexToken,
+            position.size,
+            position.averagePrice,
+            _isLong,
+            price,
+            _sizeDelta,
+            position.lastIncreasedTime,
+        )?;
+    }
+
+    let fess = _collect_margin_fees(
+        _deps,
+        _env,
+        _info,
+        _account,
+        _collateralToken,
+        _indexToken,
+        _isLong,
+        _sizeDelta.u128(),
+        position.size.u128(),
+        position.entryFundingRate.u128(),
+    )?
+    .attributes[0]
+        .value;
+
+    let _fees = Uint128::from_str(&fess)?;
+
+    let mut hasProfit: bool;
+    let mut adjustedDelta: Uint128;
+
+    let collateralDelta = balance_cw20_tokens(&_deps, _env, _collateralToken)?;
+    let collateralDeltaUsd =
+        token_to_usd_min(_deps, _env, _info, _collateralToken, collateralDelta.u128())?;
+
+    position.collateral = position.collateral + collateralDeltaUsd;
+    position.collateral = position.collateral - _fees;
+
+    position.entryFundingRate =
+        get_entry_funding_rate(_deps, _collateralToken, _indexToken, _isLong)?;
+
+    position.size = position.size + _sizeDelta;
+    position.lastIncreasedTime = _env.block.time.seconds();
+    validate(position.size > Uint128::zero(), "err");
+
+    let reserveDelta = usdToTokenMax(_deps, _env, _info, _collateralToken, _sizeDelta)?;
+    position.reserveAmount = position.reserveAmount + reserveDelta;
+    _increaseReservedAmount(_deps, _collateralToken, reserveDelta);
+
+    if _isLong {
+        _increaseGuaranteedUsd(_deps, _collateralToken, _sizeDelta + _fees);
+        _decreaseGuaranteedUsd(_deps, _collateralToken, collateralDeltaUsd);
+        _increasePoolAmount(_deps, _env, _info, _collateralToken, collateralDelta);
+        _decreasePoolAmount(
+            _deps,
+            _env,
+            _info,
+            _collateralToken,
+            Uint128::new(usd_to_token_min(
+                _deps,
+                _env,
+                _info,
+                _collateralToken,
+                _fees.u128(),
+            )?),
+        );
+    } else {
+        let globalShortSizes = GLOBALSHORTSIZE.load(_deps.storage, _indexToken)?;
+        if (globalShortSizes == Uint128::zero()) {
+            GLOBALSHORTSIZE.save(_deps.storage, _indexToken, &price);
+        } else {
+            let mut globalShortAveragePrices =
+                get_next_global_short_average_price(_deps, _indexToken, price, _sizeDelta)?;
+            GLOBALSHORTAVERAGEPRICE.save(_deps.storage, _indexToken, &globalShortAveragePrices)?;
+        }
+    }
+
+    POSITION.save(_deps.storage, key, &position)?;
+
+    Ok(Response::new())
+}
+
+pub fn decreasePosition(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _collateralDelta: Uint128,
+    _sizeDelta: Uint128,
+    _isLong: bool,
+    _receiver: Addr,
+) -> Result<Response, ContractError> {
+    _updateCumulativeFundingRate(_deps, _env, _info, _collateralToken, _indexToken)?;
+    let key = get_position_key(_account, _collateralToken, _indexToken, _isLong);
+    let mut position = get_position(_deps.as_ref(), key)?;
+    validate(position.size > Uint128::zero(), "err");
+    validate(position.size >= _sizeDelta, "err");
+    validate(position.collateral >= _collateralDelta, "err");
+
+    let collateral: Uint128 = position.collateral;
+    let reserveDelta: Uint128 = position.reserveAmount * _sizeDelta / position.size;
+    position.reserveAmount = position.reserveAmount - reserveDelta;
+    _decreaseReservedAmount(_deps, _collateralToken, reserveDelta);
+
+    let usdtout: Uint128;
+
+    usdtout = _reduceCollateral(
+        _deps,
+        _env,
+        _info,
+        _account,
+        _collateralToken,
+        _indexToken,
+        _collateralDelta,
+        _sizeDelta,
+        _isLong,
+    )?;
+
+    let price: Uint128;
+
+    if position.size != _sizeDelta {
+        // Update entry funding rate
+        let entry_funding_rate =
+            get_entry_funding_rate(_deps, _collateralToken, _indexToken, _isLong)?;
+
+        // Update position size and validate
+        position.size = position.size.wrapping_sub(_sizeDelta);
+
+        if _isLong {
+            _increaseGuaranteedUsd(_deps, _collateralToken, collateral - position.collateral)?;
+        }
+
+        if _isLong {
+            price = get_min_price(_deps, _env, _info, _indexToken)?;
+        } else {
+            price = get_min_price(_deps, _env, _info, _indexToken)?;
+        };
+    };
+
+    let decrease_event = Event::new("decrease_position")
+        .add_attribute("account", _account.clone())
+        .add_attribute("collateral_token", _collateralToken.clone())
+        .add_attribute("index_token", _indexToken.clone())
+        .add_attribute("collateral_delta", _collateralDelta.to_string())
+        .add_attribute("size_delta", _sizeDelta.to_string())
+        .add_attribute("is_long", _isLong.to_string())
+        .add_attribute("price", price.to_string())
+        .add_attribute("usd_out_after_fee", (usdtout.to_string()));
+
+    Ok(Response::new().add_event(decrease_event))
+}
+
+pub fn _reduceCollateral(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _collateralDelta: Uint128,
+    _sizeDelta: Uint128,
+    _isLong: bool,
+) -> Result<Uint128, ContractError> {
+    let key = get_position_key(_account, _collateralToken, _indexToken, _isLong);
+    let mut position = get_position(_deps.as_ref(), key)?;
+
+    let fess = _collect_margin_fees(
+        _deps,
+        _env,
+        _info,
+        _account,
+        _collateralToken,
+        _indexToken,
+        _isLong,
+        _sizeDelta.u128(),
+        position.size.u128(),
+        position.entryFundingRate.u128(),
+    )?
+    .attributes[0]
+        .value;
+
+    let _fees = Uint128::from_str(&fess)?;
+
+    let mut hasProfit: bool;
+    let mut adjustedDelta: Uint128;
+
+    let (_hasProfit, delta) = get_delta(
+        _deps,
+        _env,
+        _info,
+        _indexToken,
+        position.size,
+        position.averagePrice,
+        _isLong,
+        position.lastIncreasedTime,
+    )?;
+    hasProfit = _hasProfit;
+
+    adjustedDelta = _sizeDelta * delta / position.size;
+
+    let usdtOut: Uint128;
+
+    if (hasProfit && adjustedDelta > Uint128::zero()) {
+        position.collateral = position.collateral - adjustedDelta;
+
+        if _isLong {
+            let tokenAmount =
+                usd_to_token_min(_deps, _env, _info, _collateralToken, adjustedDelta.u128())?;
+            _increasePoolAmount(
+                _deps,
+                _env,
+                _info,
+                _collateralToken,
+                Uint128::new(tokenAmount),
+            )?;
+        }
+        position.realisedPnL = position.realisedPnL - Int128::new(adjustedDelta.u128() as i128);
+
+        if _collateralDelta > Uint128::zero() {
+            usdtOut = usdtOut + _collateralDelta;
+            position.collateral = position.collateral - _collateralDelta;
+        }
+
+        if position.size == _sizeDelta {
+            usdtOut = usdtOut + position.collateral;
+            position.collateral = Uint128::zero();
+        }
+    }
+    let mut attributes = vec![
+        attr("action", "update_pnl"),
+        attr("has_profit", hasProfit.to_string()),
+        attr("adjusted_delta", adjustedDelta.to_string()),
+    ];
+
+    let event = Event::new("update_pnl");
+
+    Ok(usdtOut)
 }
 
 #[cfg(test)]

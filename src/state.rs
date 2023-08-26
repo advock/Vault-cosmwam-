@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Int256, Uint128, Uint256};
+use cosmwasm_std::{Addr, Int128, Int256, Uint128, Uint256};
 use cw_controllers::Admin;
 use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
-    pub size: Uint256,
-    pub collateral: Uint256,
-    pub averagePrice: Uint256,
-    pub entryFundingRate: Uint256,
-    pub reserveAmount: Uint256,
-    pub realisedPnL: Int256,
-    pub lastIncreasedTime: Uint256,
+    pub size: Uint128,
+    pub collateral: Uint128,
+    pub averagePrice: Uint128,
+    pub entryFundingRate: Uint128,
+    pub reserveAmount: Uint128,
+    pub realisedPnL: Int128,
+    pub lastIncreasedTime: u64,
 }
 
 pub const ADMIN: Admin = Admin::new("admin");
@@ -63,25 +63,25 @@ pub const CONFIG: Item<Config> = Item::new("config");
 pub const ISLIQUIDATOR: Map<Addr, bool> = Map::new("is-liquidator");
 pub const ISMANAGER: Map<Addr, bool> = Map::new("is-manager");
 pub const WHITELISTEDTOKEN: Map<Addr, bool> = Map::new("white-listed-token");
-pub const TOKENDECIMAL: Map<Addr, Uint256> = Map::new("token-decimal");
+pub const TOKENDECIMAL: Map<Addr, Uint128> = Map::new("token-decimal");
 pub const MINPROFITBASISPOINT: Map<Addr, Uint256> = Map::new("min-profit-basis-Poinut");
 pub const STABLETOKEN: Map<Addr, bool> = Map::new("stable-token");
 pub const SHORTABLETOKEN: Map<Addr, bool> = Map::new("shortable-token");
 
 pub const TOKENBALANCE: Map<Addr, Uint128> = Map::new("token-balance");
 pub const TOKENWEIGHT: Map<Addr, Uint256> = Map::new("tokenWeights");
-pub const USDGAMOUNT: Map<Addr, Uint256> = Map::new("usdg-amount");
-pub const MAXUSDGAMOUNT: Map<Addr, Uint256> = Map::new("max-USDG-amount");
+pub const USDGAMOUNT: Map<Addr, Uint128> = Map::new("usdg-amount");
+pub const MAXUSDGAMOUNT: Map<Addr, Uint128> = Map::new("max-USDG-amount");
 pub const POOLAMOUNT: Map<Addr, Uint128> = Map::new("pool-amount");
 pub const RESERVEDAMOUNTS: Map<Addr, Uint128> = Map::new("reserve - amount");
 pub const BUFFERAMOUNT: Map<Addr, Uint256> = Map::new("buffer-amount");
-pub const GUARANTEEUSD: Map<Addr, Uint256> = Map::new("guarantee-usdt");
+pub const GUARANTEEUSD: Map<Addr, Uint128> = Map::new("guarantee-usdt");
 pub const CUMULATIVEFUNDINGRATE: Map<Addr, Uint128> = Map::new("cumulative-funding-rate");
 pub const LASTFUNDINTIME: Map<Addr, u128> = Map::new("lastFundingTimes");
 
-pub const POSITION: Map<u128, Position> = Map::new("position");
+pub const POSITION: Map<Vec<u8>, Position> = Map::new("position");
 
 pub const FEERESERVED: Map<Addr, Uint128> = Map::new("fee-reserved");
-pub const GLOBALSHORTSIZE: Map<Addr, Uint256> = Map::new("global-short-size");
-pub const GLOBALSHORTAVERAGEPRICE: Map<Addr, Uint256> = Map::new("global-short-average-price");
+pub const GLOBALSHORTSIZE: Map<Addr, Uint128> = Map::new("global-short-size");
+pub const GLOBALSHORTAVERAGEPRICE: Map<Addr, Uint128> = Map::new("global-short-average-price");
 pub const MAXGLOBALSHORTSIZE: Map<Addr, Uint256> = Map::new("max-global-short-size");
