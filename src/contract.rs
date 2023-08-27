@@ -110,36 +110,36 @@ pub fn execute(
     _msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match _msg {
-        ExecuteMsg::SetVaultUtils { _utilisAddr } => setVaultUtils(_deps, _info, _utilisAddr),
+        ExecuteMsg::SetVaultUtils { _utilisAddr } => set_vault_utils(_deps, _info, _utilisAddr),
         ExecuteMsg::SetInManagerMode { Inmanagermode } => {
-            setInManagerMode(_deps, _info, Inmanagermode)
+            set_in_managerMode(_deps, _info, Inmanagermode)
         }
         ExecuteMsg::SetManager { ismanager, address } => {
-            setManager(_deps, _api, _info, ismanager, address)
+            set_manager(_deps, _api, _info, ismanager, address)
         }
         ExecuteMsg::SetInPrivateLiqMode { InPrivateLiqMode } => {
-            setInPrivateLiqMode(_deps, _api, _info, InPrivateLiqMode)
+            set_in_private_liqMode(_deps, _api, _info, InPrivateLiqMode)
         }
         ExecuteMsg::Setliquidator {
             is_active,
             liquidator,
-        } => setliquidator(_deps, _api, _info, is_active, liquidator),
+        } => set_liquidator(_deps, _api, _info, is_active, liquidator),
         ExecuteMsg::SetIsSwapEnabled { is_swap_enable } => {
-            setIsSwapEnabled(_deps, _api, _info, is_swap_enable)
+            set_is_swap_enabled(_deps, _api, _info, is_swap_enable)
         }
         ExecuteMsg::SetIsLeverageEnabled { is_Leverage_enable } => {
-            setIsLeverageEnabled(_deps, _api, _info, is_Leverage_enable)
+            set_is_leverage_enabled(_deps, _api, _info, is_Leverage_enable)
         }
         ExecuteMsg::SetMaxGasPrice { _max_gas_price } => {
-            setMaxGasPrice(_deps, _api, _info, _max_gas_price)
+            set_max_gas_price(_deps, _api, _info, _max_gas_price)
         }
         ExecuteMsg::SetGov { gov } => set_gov(_deps, _api, _info, gov),
-        ExecuteMsg::SetPriceFeed { _price_feed } => setPriceFeed(_deps, _api, _info, _price_feed),
+        ExecuteMsg::SetPriceFeed { _price_feed } => set_price_feed(_deps, _api, _info, _price_feed),
         ExecuteMsg::SetMaxLeverage { _maxLeverage } => {
-            setMaxLeverage(_deps, _api, _info, _maxLeverage)
+            set_max_leverage(_deps, _api, _info, _maxLeverage)
         }
         ExecuteMsg::SetBufferAmount { _token, _amount } => {
-            setBufferAmount(_deps, _api, _info, _token, _amount)
+            set_buffer_amount(_deps, _api, _info, _token, _amount)
         }
         ExecuteMsg::SetMaxGlobalShortSize { _token, _amount } => {
             set_max_global_shortSize(_deps, _api, _info, _token, _amount)
@@ -154,7 +154,7 @@ pub fn execute(
             _liquidationFeeUsd,
             _minProfitTime,
             _hasDynamicFees,
-        } => setFess(
+        } => set_fess(
             _deps,
             _api,
             _info,
@@ -173,7 +173,7 @@ pub fn execute(
             _fundingInterval,
             _fundingRateFactor,
             _stableFundingRateFactor,
-        } => setFundingRate(
+        } => set_funding_rate(
             _deps,
             _api,
             _info,
@@ -189,7 +189,7 @@ pub fn execute(
             _maxUsdgAmount,
             _isStable,
             _isShortable,
-        } => setTokenConfig(
+        } => set_token_config(
             _deps,
             _api,
             _info,
@@ -305,7 +305,7 @@ pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
     unimplemented!()
 }
 
-pub fn setVaultUtils(
+pub fn set_vault_utils(
     _deps: DepsMut,
     _info: MessageInfo,
     _utilisAddr: Addr,
@@ -320,7 +320,7 @@ pub fn setVaultUtils(
     Ok(Response::new())
 }
 
-pub fn setInManagerMode(
+pub fn set_in_managerMode(
     _deps: DepsMut,
     _info: MessageInfo,
     Inmanagermode: bool,
@@ -335,7 +335,7 @@ pub fn setInManagerMode(
     Ok(Response::new())
 }
 
-pub fn setManager(
+pub fn set_manager(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -349,7 +349,7 @@ pub fn setManager(
     Ok(Response::new())
 }
 
-pub fn setInPrivateLiqMode(
+pub fn set_in_private_liqMode(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -364,7 +364,7 @@ pub fn setInPrivateLiqMode(
 
     Ok(Response::new())
 }
-pub fn setliquidator(
+pub fn set_liquidator(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -378,7 +378,7 @@ pub fn setliquidator(
     Ok(Response::new())
 }
 
-pub fn setIsSwapEnabled(
+pub fn set_is_swap_enabled(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -394,7 +394,7 @@ pub fn setIsSwapEnabled(
     Ok(Response::new())
 }
 
-pub fn setIsLeverageEnabled(
+pub fn set_is_leverage_enabled(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -410,7 +410,7 @@ pub fn setIsLeverageEnabled(
     Ok(Response::new())
 }
 
-pub fn setMaxGasPrice(
+pub fn set_max_gas_price(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -444,7 +444,7 @@ pub fn set_gov(
     Ok(Response::new())
 }
 
-pub fn setPriceFeed(
+pub fn set_price_feed(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -460,7 +460,7 @@ pub fn setPriceFeed(
     Ok(Response::new())
 }
 
-pub fn setMaxLeverage(
+pub fn set_max_leverage(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -476,7 +476,7 @@ pub fn setMaxLeverage(
     Ok(Response::new())
 }
 
-pub fn setBufferAmount(
+pub fn set_buffer_amount(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -504,7 +504,7 @@ pub fn set_max_global_shortSize(
     Ok(Response::new())
 }
 
-pub fn setFess(
+pub fn set_fess(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -545,7 +545,7 @@ pub fn setFess(
     Ok(Response::new())
 }
 
-pub fn setFundingRate(
+pub fn set_funding_rate(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
@@ -570,7 +570,7 @@ pub fn setFundingRate(
     Ok(Response::new())
 }
 
-pub fn setTokenConfig(
+pub fn set_token_config(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
