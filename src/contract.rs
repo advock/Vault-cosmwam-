@@ -1,17 +1,14 @@
-use std::clone;
 use std::str::FromStr;
 
-use crate::bank::{get_max_wager, is_asset_whitelisted, pay_in, pay_out};
+use crate::bank::pay_out;
 //use crate::events::{DecreasePositionEvent, DecreaseReservedAmount};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Api, Binary, CosmosMsg, Deps, DepsMut, Env, Event, Int128, MessageInfo,
-    Response, StdResult, SubMsg, Uint128, Uint256, WasmMsg,
+    attr, Addr, Api, Binary, Deps, DepsMut, Env, Event, Int128, MessageInfo, Response, StdResult,
+    SubMsg, Uint128,
 };
 use cw2::set_contract_version;
-use cw20::Cw20ExecuteMsg;
-use cw_controllers::Admin;
 
 use crate::error::ContractError;
 use crate::helpers::{
@@ -27,7 +24,7 @@ use crate::helpers::{
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::query::{check_whitelisted_token, get_position, get_position_key, query_config};
 use crate::state::{
-    Config, Position, State, ADMIN, BUFFERAMOUNT, CONFIG, CUMULATIVEFUNDINGRATE, FEERESERVED,
+    Config, State, ADMIN, BUFFERAMOUNT, CONFIG, CUMULATIVEFUNDINGRATE, FEERESERVED,
     GLOBALSHORTAVERAGEPRICE, GLOBALSHORTSIZE, ISLIQUIDATOR, ISMANAGER, LASTFUNDINTIME,
     MAXGLOBALSHORTSIZE, MAXUSDGAMOUNT, MINPROFITBASISPOINT, POOLAMOUNT, POSITION, RESERVEDAMOUNTS,
     SHORTABLETOKEN, STABLETOKEN, STATE, TOKENDECIMAL, TOKENWEIGHT, USDGAMOUNT, WHITELISTEDTOKEN,
@@ -63,9 +60,9 @@ pub fn instantiate(
 
     STATE.save(_deps.storage, &state)?;
 
-    ADMIN.set(_deps, Some((_info.clone().sender)))?;
+    ADMIN.set(_deps, Some(_info.clone().sender))?;
 
-    let config = Config {
+    let _config = Config {
         is_initialized: true,
         is_swap_enabled: true,
         is_leverage_enabled: true,
@@ -323,7 +320,7 @@ pub fn set_vault_utils(
 pub fn set_in_managerMode(
     _deps: DepsMut,
     _info: MessageInfo,
-    Inmanagermode: bool,
+    _Inmanagermode: bool,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender)?;
 
@@ -337,7 +334,7 @@ pub fn set_in_managerMode(
 
 pub fn set_manager(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     ismanager: bool,
     address: Addr,
@@ -351,9 +348,9 @@ pub fn set_manager(
 
 pub fn set_in_private_liqMode(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
-    InPrivateLiqMode: bool,
+    _InPrivateLiqMode: bool,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender)?;
 
@@ -366,7 +363,7 @@ pub fn set_in_private_liqMode(
 }
 pub fn set_liquidator(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     is_active: bool,
     liquidator: Addr,
@@ -380,9 +377,9 @@ pub fn set_liquidator(
 
 pub fn set_is_swap_enabled(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
-    is_swap_enable: bool,
+    _is_swap_enable: bool,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender)?;
 
@@ -396,9 +393,9 @@ pub fn set_is_swap_enabled(
 
 pub fn set_is_leverage_enabled(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
-    is_Leverage_enable: bool,
+    _is_Leverage_enable: bool,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender)?;
 
@@ -412,7 +409,7 @@ pub fn set_is_leverage_enabled(
 
 pub fn set_max_gas_price(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _max_gas_price: Uint128,
 ) -> Result<Response, ContractError> {
@@ -428,12 +425,12 @@ pub fn set_max_gas_price(
 
 pub fn set_gov(
     deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     gov: Addr,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(deps.as_ref(), &_info.sender)?;
-    let mut admin_storage = ADMIN.get(deps.as_ref())?;
+    let _admin_storage = ADMIN.get(deps.as_ref())?;
 
     let mut config = query_config(deps.as_ref())?;
     config.gov = gov.clone();
@@ -446,7 +443,7 @@ pub fn set_gov(
 
 pub fn set_price_feed(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _price_feed: Addr,
 ) -> Result<Response, ContractError> {
@@ -462,7 +459,7 @@ pub fn set_price_feed(
 
 pub fn set_max_leverage(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _maxLeverage: Uint128,
 ) -> Result<Response, ContractError> {
@@ -478,7 +475,7 @@ pub fn set_max_leverage(
 
 pub fn set_buffer_amount(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _token: Addr,
     _amount: Uint128,
@@ -492,7 +489,7 @@ pub fn set_buffer_amount(
 
 pub fn set_max_global_shortSize(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _token: Addr,
     _amount: Uint128,
@@ -506,7 +503,7 @@ pub fn set_max_global_shortSize(
 
 pub fn set_fess(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _taxBasisPoints: Uint128,
     _stableTaxBasisPoints: Uint128,
@@ -547,7 +544,7 @@ pub fn set_fess(
 
 pub fn set_funding_rate(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _fundingInterval: u128,
     _fundingRateFactor: u128,
@@ -572,7 +569,7 @@ pub fn set_funding_rate(
 
 pub fn set_token_config(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _token: Addr,
     _tokenDecimals: Uint128,
@@ -613,7 +610,7 @@ pub fn set_token_config(
 
 pub fn clearTokenConfig(
     _deps: DepsMut,
-    api: &dyn Api,
+    _api: &dyn Api,
     _info: MessageInfo,
     _token: Addr,
 ) -> Result<Response, ContractError> {
@@ -749,7 +746,7 @@ pub fn buyUSDG(
     let tokenAmount: Uint128 = balance_cw20_tokens(&_deps.branch(), _env.clone(), _token.clone())?;
     validate(tokenAmount > Uint128::zero(), "err")?;
 
-    let should_update = _updateCumulativeFundingRate(
+    let _should_update = _updateCumulativeFundingRate(
         _deps.branch(),
         _env.clone(),
         _info.clone(),
@@ -846,7 +843,7 @@ pub fn sellUSDG(
         balance_cw20_tokens(&_deps.branch(), _env.clone(), config.usdg.clone())?;
     validate(usdgAmount > Uint128::zero(), "err")?;
 
-    let should_update = _updateCumulativeFundingRate(
+    let _should_update = _updateCumulativeFundingRate(
         _deps.branch(),
         _env.clone(),
         _info.clone(),
@@ -932,7 +929,7 @@ pub fn _updateCumulativeFundingRate(
     let config = CONFIG.load(_deps.storage)?;
     let fundinginterval = config.funding_interval;
     let should_update = updateCumulativeFundingRate(_deps.branch(), _env.clone(), _info.clone())?;
-    if (!should_update) {
+    if !should_update {
         return Err(ContractError::Unauthorized {});
     }
     let lastFundingTimes = LASTFUNDINTIME.load(_deps.storage, _collateralToken.clone())?;
@@ -1018,7 +1015,7 @@ pub fn getNextFundingRate(
     }
     let reserve_amount = RESERVEDAMOUNTS.load(_deps.storage, _collateralToken.clone())?;
 
-    let rate = (_fundingRateFactor * (reserve_amount.u128()) * intervals);
+    let rate = _fundingRateFactor * (reserve_amount.u128()) * intervals;
 
     Ok(Uint128::new(rate) / poolAmount)
 }
@@ -1064,11 +1061,11 @@ pub fn collect_fees(
 ) -> Result<Uint128, ContractError> {
     let afterFeeAmount: Uint128 =
         _amount * (BASIS_POINTS_DIVISOR - _fee_basis_points) / BASIS_POINTS_DIVISOR;
-    let feeAmount: Uint128 = _amount - afterFeeAmount;
+    let _feeAmount: Uint128 = _amount - afterFeeAmount;
 
     let feeReserves = FEERESERVED.load(_deps.storage, _token)?;
 
-    Ok((feeReserves))
+    Ok(feeReserves)
 }
 
 pub fn getRedemptionAmount(
@@ -1165,7 +1162,7 @@ pub fn swap(
         usdgAmount,
     )?;
 
-    let feeBasisPoints: Uint128 = getSwapFeeBasisPoints(
+    let _feeBasisPoints: Uint128 = getSwapFeeBasisPoints(
         _deps.branch(),
         _env.clone(),
         _info.clone(),
@@ -1235,7 +1232,7 @@ pub fn increasePosition(
     if position.size == Uint128::zero() {
         position.averagePrice = price;
     }
-    if (position.size > Uint128::zero() && _sizeDelta > Uint128::zero()) {
+    if position.size > Uint128::zero() && _sizeDelta > Uint128::zero() {
         position.averagePrice = get_next_average_price(
             _deps.branch(),
             _env.clone(),
@@ -1267,8 +1264,8 @@ pub fn increasePosition(
 
     let _fees = Uint128::from_str(fess)?;
 
-    let mut hasProfit: bool;
-    let mut adjustedDelta: Uint128;
+    let mut _hasProfit: bool;
+    let mut _adjustedDelta: Uint128;
 
     let collateralDelta = balance_cw20_tokens(&_deps, _env.clone(), _collateralToken.clone())?;
     let collateralDeltaUsd = token_to_usd_min(
@@ -1333,7 +1330,7 @@ pub fn increasePosition(
         )?;
     } else {
         let globalShortSizes = GLOBALSHORTSIZE.load(_deps.storage, _indexToken.clone())?;
-        if (globalShortSizes == Uint128::zero()) {
+        if globalShortSizes == Uint128::zero() {
             GLOBALSHORTSIZE.save(_deps.storage, _indexToken.clone(), &price)?;
         } else {
             let globalShortAveragePrices = get_next_global_short_average_price(
@@ -1384,7 +1381,7 @@ pub fn decreasePosition(
     validate(position.size > Uint128::zero(), "err")?;
     validate(position.size >= _sizeDelta, "err")?;
     validate(position.collateral >= _collateralDelta.clone(), "err")?;
-    let mut config = CONFIG.load(_deps.storage)?;
+    let config = CONFIG.load(_deps.storage)?;
 
     let collateral: Uint128 = position.collateral;
     let reserveDelta: Uint128 = position.reserveAmount * _sizeDelta / position.size;
@@ -1411,7 +1408,7 @@ pub fn decreasePosition(
 
     if position.size != _sizeDelta {
         // Update entry funding rate
-        let entry_funding_rate = get_entry_funding_rate(
+        let _entry_funding_rate = get_entry_funding_rate(
             _deps.branch(),
             _collateralToken.clone(),
             _indexToken.clone(),
@@ -1466,11 +1463,11 @@ pub fn decreasePosition(
         }
     };
 
-    if (!_isLong) {
+    if !_isLong {
         _decreaseGlobalShortSize(_deps.branch(), _indexToken.clone(), position.size)?;
     }
     if usdtout > Uint128::zero() {
-        if (_isLong) {
+        if _isLong {
             let amount = Uint128::new(usd_to_token_min(
                 _deps.branch(),
                 _env.clone(),
@@ -1502,7 +1499,7 @@ pub fn decreasePosition(
             return Ok(Response::new().add_attribute("amountafterfees", amount.to_string()));
         }
     }
-    POSITION.save(_deps.storage, key, &position);
+    POSITION.save(_deps.storage, key, &position)?;
     let decrease_event = Event::new("decrease_position")
         .add_attribute("account", _account.clone())
         .add_attribute("collateral_token", _collateralToken.clone())
@@ -1511,7 +1508,7 @@ pub fn decreasePosition(
         .add_attribute("size_delta", _sizeDelta.to_string())
         .add_attribute("is_long", _isLong.to_string())
         .add_attribute("price", price.to_string())
-        .add_attribute("usd_out_after_fee", (usdtout.to_string()));
+        .add_attribute("usd_out_after_fee", usdtout.to_string());
 
     Ok(Response::new().add_event(decrease_event))
 }
@@ -1552,8 +1549,8 @@ pub fn _reduceCollateral(
 
     let _fees = Uint128::from_str(fess)?;
 
-    let mut hasProfit: bool;
-    let mut adjustedDelta: Uint128;
+    let hasProfit: bool;
+    let adjustedDelta: Uint128;
 
     let (_hasProfit, delta) = get_delta(
         _deps.branch(),
@@ -1571,7 +1568,7 @@ pub fn _reduceCollateral(
 
     let mut usdtOut = Uint128::zero();
 
-    if (hasProfit && adjustedDelta > Uint128::zero()) {
+    if hasProfit && adjustedDelta > Uint128::zero() {
         usdtOut = adjustedDelta;
         position.realisedPnL =
             position.realisedPnL + Int128::new(adjustedDelta.clone().u128() as i128);
@@ -1590,11 +1587,11 @@ pub fn _reduceCollateral(
                 _info.clone(),
                 _collateralToken.clone(),
                 Uint128::new(tokenAmount),
-            );
+            )?;
         }
     }
 
-    if (!hasProfit && adjustedDelta > Uint128::zero()) {
+    if !hasProfit && adjustedDelta > Uint128::zero() {
         position.collateral = position.collateral - adjustedDelta;
 
         if _isLong {
@@ -1625,13 +1622,13 @@ pub fn _reduceCollateral(
             position.collateral = Uint128::zero();
         }
     }
-    let mut attributes = vec![
+    let _attributes = vec![
         attr("action", "update_pnl"),
         attr("has_profit", hasProfit.to_string()),
         attr("adjusted_delta", adjustedDelta.to_string()),
     ];
 
-    let event = Event::new("update_pnl");
+    let _event = Event::new("update_pnl");
 
     Ok(Response::new().add_attribute("usdtout", usdtOut.to_string()))
 }
@@ -1649,7 +1646,7 @@ pub fn liquidatePosition(
     let mut config = CONFIG.load(_deps.storage)?;
     if config.in_private_liquidation_mode {
         let isliq = ISLIQUIDATOR.load(_deps.storage, _info.clone().sender)?;
-        validate(isliq, "error_message");
+        validate(isliq, "error_message")?;
     }
 
     config.include_amm_price = false;
@@ -1668,8 +1665,8 @@ pub fn liquidatePosition(
         _isLong,
     );
 
-    let mut position = get_position(_deps.as_ref(), key.clone())?;
-    validate(position.size > Uint128::zero(), "error_message");
+    let position = get_position(_deps.as_ref(), key.clone())?;
+    validate(position.size > Uint128::zero(), "error_message")?;
 
     let liquidationState: Uint128;
     let marginFees: Uint128;
@@ -1684,7 +1681,7 @@ pub fn liquidatePosition(
         _receiver.clone(),
     )?;
 
-    validate(liquidationState != Uint128::zero(), "errr");
+    validate(liquidationState != Uint128::zero(), "errr")?;
 
     if liquidationState == Uint128::new(2) {
         decreasePosition(
@@ -1698,7 +1695,7 @@ pub fn liquidatePosition(
             position.size,
             _isLong,
             _account.clone(),
-        );
+        )?;
 
         config.include_amm_price = true;
         return Ok(Response::new());
@@ -1713,9 +1710,9 @@ pub fn liquidatePosition(
     )?;
     let feeReserves = FEERESERVED.load(_deps.storage, _collateralToken.clone())?;
 
-    FEERESERVED.save(_deps.storage, _collateralToken.clone(), &feeReserves);
+    FEERESERVED.save(_deps.storage, _collateralToken.clone(), &feeReserves)?;
 
-    let event = Event::new("collect_margin_fees")
+    let _event = Event::new("collect_margin_fees")
         .add_attribute("collateral_token", _collateralToken.to_string())
         .add_attribute("margin_fees", marginFees.to_string())
         .add_attribute("fee_tokens", feeTokens.to_string());
@@ -1731,7 +1728,7 @@ pub fn liquidatePosition(
             _deps.branch(),
             _collateralToken.clone(),
             position.size - position.collateral,
-        );
+        )?;
         let amount = Uint128::new(usd_to_token_min(
             _deps.branch(),
             _env.clone(),
@@ -1790,7 +1787,7 @@ pub fn liquidatePosition(
     }
 
     if _isLong {
-        _decreaseGlobalShortSize(_deps.branch(), _indexToken.clone(), position.size);
+        _decreaseGlobalShortSize(_deps.branch(), _indexToken.clone(), position.size)?;
     }
 
     let amount = usd_to_token_min(
@@ -1807,7 +1804,7 @@ pub fn liquidatePosition(
         _info.clone(),
         _collateralToken.clone(),
         Uint128::new(amount),
-    );
+    )?;
 
     transfer_cw20_tokens(
         _collateralToken.clone(),
@@ -1818,8 +1815,8 @@ pub fn liquidatePosition(
 
     config.include_amm_price = true;
 
-    CONFIG.save(_deps.storage, &config);
-    POSITION.save(_deps.storage, key, &position);
+    CONFIG.save(_deps.storage, &config)?;
+    POSITION.save(_deps.storage, key, &position)?;
 
     Ok(Response::new().add_event(event))
 }

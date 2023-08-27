@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Int128, Int256, Uint128, Uint256};
+use cosmwasm_std::{Addr, Int128, Uint128};
 use cw_controllers::Admin;
 use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;

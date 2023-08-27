@@ -1,13 +1,13 @@
 use cosmwasm_std::{
-    Addr, Binary, Deps, DepsMut, Env, Int128, MessageInfo, Response, StdError, StdResult, Uint128,
+    Addr, Deps, DepsMut, Int128, StdError, StdResult, Uint128,
 };
 
 use crate::contract::BASIS_POINTS_DIVISOR;
 use crate::state::{
-    Config, Position, CONFIG, ISMANAGER, POOLAMOUNT, POSITION, RESERVEDAMOUNTS, WHITELISTEDTOKEN,
+    Config, Position, CONFIG, ISMANAGER, POSITION, WHITELISTEDTOKEN,
 };
 
-use crate::{helpers::validate, ContractError};
+use crate::{helpers::validate};
 
 pub fn query_config(_deps: Deps) -> StdResult<Config> {
     let res = CONFIG.may_load(_deps.storage)?;
@@ -56,8 +56,8 @@ pub fn get_position(_deps: Deps, key: Vec<u8>) -> StdResult<Position> {
     let res = POSITION.may_load(_deps.storage, key)?;
 
     match res {
-        Some(val) => Ok(res.unwrap()),
-        None => Ok((Position {
+        Some(_val) => Ok(res.unwrap()),
+        None => Ok(Position {
             size: Uint128::zero(),                 // Set default value for Uint256
             collateral: Uint128::zero(),           // Set default value for Uint256
             averagePrice: Uint128::zero(),         // Set default value for Uint256
@@ -65,7 +65,7 @@ pub fn get_position(_deps: Deps, key: Vec<u8>) -> StdResult<Position> {
             reserveAmount: Uint128::zero(),        // Set default value for Uint256
             realisedPnL: Int128::zero(),           // Set default value for Int256
             lastIncreasedTime: Default::default(), // Set default value for Uint256
-        })),
+        }),
     }
 }
 

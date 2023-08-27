@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    to_binary, Addr, Coin, CosmosMsg, Deps, DepsMut, Env, QueryRequest, SubMsg, Uint128, WasmMsg,
+    to_binary, Addr, Coin, CosmosMsg, Deps, Env, QueryRequest, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
 use schemars::JsonSchema;

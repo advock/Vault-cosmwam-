@@ -2,16 +2,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{
-    to_binary, Addr, Binary, ContractResult, CosmosMsg, DepsMut, Env, Event, MessageInfo,
-    QueryRequest, Response, StdError, StdResult, Uint128, Uint256, WasmMsg, WasmQuery,
+    to_binary, Addr, CosmosMsg, DepsMut, Env, Event, MessageInfo,
+    QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg, WasmQuery,
 };
-use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
+use cw20::{BalanceResponse, Cw20ExecuteMsg};
 
 use crate::{
     msg::ExecuteMsg,
     state::{
-        CONFIG, FEERESERVED, GLOBALSHORTAVERAGEPRICE, GLOBALSHORTSIZE, GUARANTEEUSD, MAXUSDGAMOUNT,
-        POOLAMOUNT, RESERVEDAMOUNTS, SHORTABLETOKEN, STABLETOKEN, TOKENBALANCE, TOKENDECIMAL,
+        FEERESERVED, GLOBALSHORTAVERAGEPRICE, GLOBALSHORTSIZE, GUARANTEEUSD, MAXUSDGAMOUNT,
+        POOLAMOUNT, RESERVEDAMOUNTS, SHORTABLETOKEN, STABLETOKEN, TOKENBALANCE,
         USDGAMOUNT, WHITELISTEDTOKEN,
     },
     ContractError,
@@ -55,11 +55,11 @@ pub fn _increaseUsdgAmount(
     _token: Addr,
     _amount: Uint128,
 ) -> Result<Response, ContractError> {
-    let mut usdgamount = USDGAMOUNT.load(_deps.storage, _token.clone())?;
+    let usdgamount = USDGAMOUNT.load(_deps.storage, _token.clone())?;
 
     USDGAMOUNT.save(_deps.storage, _token.clone(), &(usdgamount + _amount))?;
 
-    let mut maxUsdgAmount = MAXUSDGAMOUNT.load(_deps.storage, _token.clone())?;
+    let maxUsdgAmount = MAXUSDGAMOUNT.load(_deps.storage, _token.clone())?;
 
     if maxUsdgAmount != Uint128::zero() {
         validate(usdgamount <= maxUsdgAmount, "err")?;
@@ -80,7 +80,7 @@ pub fn _decreaseUsdgAmount(
     _token: Addr,
     _amount: Uint128,
 ) -> Result<Response, ContractError> {
-    let mut usdgamount = USDGAMOUNT.load(_deps.storage, _token.clone())?;
+    let usdgamount = USDGAMOUNT.load(_deps.storage, _token.clone())?;
 
     if usdgamount < _amount {
         USDGAMOUNT.save(_deps.storage, _token.clone(), &Uint128::zero())?;
@@ -103,7 +103,7 @@ pub fn _decreaseUsdgAmount(
 
 pub fn transfer_cw20_tokens(
     contract_address: Addr,
-    sender_address: Addr,
+    _sender_address: Addr,
     recipient_address: Addr,
     amount: Uint128,
 ) -> Result<CosmosMsg, ContractError> {
@@ -126,7 +126,7 @@ pub fn balance_cw20_tokens(
     _env: Env,
     contract_address: Addr,
 ) -> Result<Uint128, ContractError> {
-    let prev_balance = TOKENBALANCE.load(_deps.storage, contract_address.clone())?;
+    let _prev_balance = TOKENBALANCE.load(_deps.storage, contract_address.clone())?;
 
     let query_msg = QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: contract_address.clone().into_string(),
@@ -152,7 +152,7 @@ pub fn _increasePoolAmount(
     POOLAMOUNT.save(_deps.storage, _token.clone(), &(poolAmount + _amount))?;
 
     let balance = balance_cw20_tokens(&_deps, _env, _token.clone())?;
-    let poolAmount_next = POOLAMOUNT.load(_deps.storage, _token.clone())?;
+    let _poolAmount_next = POOLAMOUNT.load(_deps.storage, _token.clone())?;
     validate(poolAmount <= balance, "error_message")?;
 
     let event = Event::new("IncreasePoolAmount")
@@ -192,7 +192,7 @@ pub fn getBuyUsdgFeeBasisPoints(
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
-    usdgAmount: Uint128,
+    _usdgAmount: Uint128,
 ) -> Result<Uint128, ContractError> {
     unimplemented!()
 }
@@ -201,7 +201,7 @@ pub fn getSellUsdgFeeBasisPoints(
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
-    usdgAmount: Uint128,
+    _usdgAmount: Uint128,
 ) -> Result<Uint128, ContractError> {
     unimplemented!()
 }
@@ -212,7 +212,7 @@ pub fn getSwapFeeBasisPoints(
     _info: MessageInfo,
     _tokenin: Addr,
     _tokenout: Addr,
-    usdgAmount: Uint128,
+    _usdgAmount: Uint128,
 ) -> Result<Uint128, ContractError> {
     unimplemented!()
 }
@@ -367,7 +367,7 @@ pub fn get_delta(
     let min_profit_basis_points: Uint128 = Uint128::new(500); // Placeholder value
 
     let min_bps: Uint128 =
-        if (_env.clone().block.time.seconds() as u64 > _last_increased_time + MIN_PROFIT_TIME) {
+        if _env.clone().block.time.seconds() as u64 > _last_increased_time + MIN_PROFIT_TIME {
             Uint128::zero()
         } else {
             min_profit_basis_points
@@ -421,7 +421,7 @@ pub fn usd_to_token_min(
 }
 
 pub fn usd_to_token(
-    deps: DepsMut,
+    _deps: DepsMut,
     _token: &Addr,
     _usd_amount: u128,
     _price: u128,
@@ -522,7 +522,7 @@ pub fn usdToTokenMax(
     _token: Addr,
     _usdAmount: Uint128,
 ) -> Result<Uint128, ContractError> {
-    if (_usdAmount == Uint128::zero()) {
+    if _usdAmount == Uint128::zero() {
         return Ok(Uint128::zero());
     } else {
         let price = get_min_price(_deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
@@ -532,9 +532,9 @@ pub fn usdToTokenMax(
 }
 
 pub fn _increaseReservedAmount(
-    deps: DepsMut,
+    _deps: DepsMut,
     _collateral_token: Addr,
-    reserveDelta: Uint128,
+    _reserveDelta: Uint128,
 ) -> Result<Response, ContractError> {
     unimplemented!()
 }
@@ -548,7 +548,7 @@ pub fn _increaseGuaranteedUsd(
     guaranteedUsd = guaranteedUsd + _usdamount;
 
     GUARANTEEUSD.save(deps.storage, _collateral_token.clone(), &guaranteedUsd);
-    let mut response = Response::new();
+    let response = Response::new();
     let event =
         Event::new("_increaseGuaranteedUsd").add_attribute("token", _collateral_token.to_string());
 
@@ -564,7 +564,7 @@ pub fn _decreaseGuaranteedUsd(
     guaranteedUsd = guaranteedUsd - _usdamount;
 
     GUARANTEEUSD.save(deps.storage, _collateral_token.clone(), &guaranteedUsd);
-    let mut response = Response::new();
+    let response = Response::new();
     let event =
         Event::new("_decreaseGuaranteedUsd").add_attribute("token", _collateral_token.to_string());
 
@@ -609,7 +609,7 @@ pub fn _decreaseReservedAmount(
     guaranteedUsd = guaranteedUsd - _amount;
 
     RESERVEDAMOUNTS.save(deps.storage, _token.clone(), &guaranteedUsd);
-    let mut response = Response::new();
+    let response = Response::new();
     let event = Event::new("_decreaseReservedAmount").add_attribute("token", _token.to_string());
 
     Ok(response.add_event(event))
