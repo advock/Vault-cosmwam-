@@ -3,15 +3,11 @@ use cosmwasm_std::{
 };
 
 use crate::contract::BASIS_POINTS_DIVISOR;
-
-use crate::{
-    helpers::validate,
-    state::{
-        Config, Position, CONFIG, ISMANAGER, POOLAMOUNT, POSITION, RESERVEDAMOUNTS,
-        WHITELISTEDTOKEN,
-    },
-    ContractError,
+use crate::state::{
+    Config, Position, CONFIG, ISMANAGER, POOLAMOUNT, POSITION, RESERVEDAMOUNTS, WHITELISTEDTOKEN,
 };
+
+use crate::{helpers::validate, ContractError};
 
 pub fn query_config(_deps: Deps) -> StdResult<Config> {
     let res = CONFIG.may_load(_deps.storage)?;

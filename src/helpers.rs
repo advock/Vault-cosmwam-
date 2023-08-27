@@ -260,20 +260,20 @@ pub fn _validateTokens(
             collateral_token == index_token,
             "ERR_COLLATERAL_INDEX_MISMATCH",
         )?;
-        let whitelisted_tokens = WHITELISTEDTOKEN.load(_deps.storage, collateral_token)?;
+        let whitelisted_tokens = WHITELISTEDTOKEN.load(_deps.storage, collateral_token.clone())?;
         validate(whitelisted_tokens, "ERR_COLLATERAL_NOT_WHITELISTED")?;
-        let stable_tokens = STABLETOKEN.load(_deps.storage, collateral_token)?;
+        let stable_tokens = STABLETOKEN.load(_deps.storage, collateral_token.clone())?;
 
         validate(!stable_tokens, "ERR_COLLATERAL_STABLE")?;
         return Ok(());
     } else {
-        let whitelisted_tokens = WHITELISTEDTOKEN.load(_deps.storage, collateral_token)?;
+        let whitelisted_tokens = WHITELISTEDTOKEN.load(_deps.storage, collateral_token.clone())?;
         validate(whitelisted_tokens, "ERR_COLLATERAL_NOT_WHITELISTED")?;
-        let stable_tokens = STABLETOKEN.load(_deps.storage, collateral_token)?;
+        let stable_tokens = STABLETOKEN.load(_deps.storage, collateral_token.clone())?;
 
         validate(!stable_tokens, "ERR_COLLATERAL_STABLE")?;
 
-        let shortable_token = SHORTABLETOKEN.load(_deps.storage, collateral_token)?;
+        let shortable_token = SHORTABLETOKEN.load(_deps.storage, collateral_token.clone())?;
         validate(shortable_token, "ERR_COLLATERAL_STABLE")?;
 
         let stable_tokens = STABLETOKEN.load(_deps.storage, index_token)?;
@@ -288,7 +288,7 @@ pub fn get_next_average_price(
     _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
-    _index_token: &Addr,
+    _index_token: Addr,
     _size: Uint128,
     _average_price: Uint128,
     _is_long: bool,
@@ -300,7 +300,7 @@ pub fn get_next_average_price(
         _deps,
         _env,
         _info,
-        *_index_token,
+        _index_token,
         _size,
         _average_price,
         _is_long,
@@ -340,9 +340,9 @@ pub fn get_delta(
     validate(_average_price > Uint128::zero(), "ERR_AVERAGE_PRICE_ZERO")?;
 
     let price = if _is_long {
-        get_min_price(_deps, _env, _info, _index_token)?
+        get_min_price(_deps, _env.clone(), _info.clone(), _index_token.clone())?
     } else {
-        get_max_price(_deps, _env, _info, _index_token)?
+        get_max_price(_deps, _env.clone(), _info.clone(), _index_token.clone())?
     };
 
     let price_delta = if _average_price > price {
@@ -367,7 +367,7 @@ pub fn get_delta(
     let min_profit_basis_points: Uint128 = Uint128::new(500); // Placeholder value
 
     let min_bps: Uint128 =
-        if (_env.block.time.seconds() as u64 > _last_increased_time + MIN_PROFIT_TIME) {
+        if (_env.clone().block.time.seconds() as u64 > _last_increased_time + MIN_PROFIT_TIME) {
             Uint128::zero()
         } else {
             min_profit_basis_points
@@ -405,7 +405,7 @@ pub fn get_funding_fee(
 }
 
 pub fn usd_to_token_min(
-    deps: DepsMut,
+    mut deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
@@ -414,7 +414,8 @@ pub fn usd_to_token_min(
     if _usd_amount == 0 {
         return Ok(0);
     }
-    let max_price = get_max_price(deps, _env, _info, _token).unwrap();
+    let max_price =
+        get_max_price(deps.branch(), _env.clone(), _info.clone(), _token.clone()).unwrap();
     let result = usd_to_token(deps, &_token, _usd_amount, max_price.u128())?;
     Ok(result)
 }
@@ -434,7 +435,7 @@ pub fn usd_to_token(
 }
 
 pub fn _collect_margin_fees(
-    deps: DepsMut,
+    mut deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _account: Addr,
@@ -446,16 +447,16 @@ pub fn _collect_margin_fees(
     _entry_funding_rate: u128,
 ) -> Result<Response, ContractError> {
     let mut feeUsd = get_position_fee(
-        _account,
-        _collateral_token,
-        _index_token,
+        _account.clone().clone(),
+        _collateral_token.clone(),
+        _index_token.clone(),
         _is_long,
         _size_delta,
     );
     let fundingFee = get_funding_fee(
         _account,
-        _collateral_token,
-        _index_token,
+        _collateral_token.clone(),
+        _index_token.clone(),
         _is_long,
         _size,
         _entry_funding_rate,
@@ -464,16 +465,20 @@ pub fn _collect_margin_fees(
     feeUsd = feeUsd + fundingFee;
 
     let feeTokens: Uint128 = Uint128::new(usd_to_token_min(
-        deps,
+        deps.branch(),
         _env,
         _info,
-        _collateral_token,
+        _collateral_token.clone(),
         feeUsd.u128(),
     )?);
 
-    let feeReserves = FEERESERVED.load(deps.storage, _collateral_token)?;
+    let feeReserves = FEERESERVED.load(deps.storage, _collateral_token.clone())?;
 
-    FEERESERVED.save(deps.storage, _collateral_token, &(feeReserves + feeTokens));
+    FEERESERVED.save(
+        deps.storage,
+        _collateral_token.clone(),
+        &(feeReserves + feeTokens),
+    );
 
     let event = Event::new("collect_margin_fees")
         .add_attribute("collateral_token", _collateral_token.as_str())
@@ -486,7 +491,7 @@ pub fn _collect_margin_fees(
 }
 
 pub fn token_to_usd_min(
-    deps: DepsMut,
+    mut deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
@@ -495,14 +500,14 @@ pub fn token_to_usd_min(
     if _token_amount == 0 {
         return Ok(Uint128::zero());
     }
-    let price: Uint128 = get_min_price(deps, _env, _info, _token)?;
-    let decimals = get_max_price(deps, _env, _info, _token)?;
+    let price: Uint128 = get_min_price(deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
+    let decimals = get_max_price(deps, _env.clone(), _info.clone(), _token.clone())?;
     let result: u128 = _token_amount * price.u128() / 10u128.pow(decimals.u128() as u32);
     Ok(Uint128::new(result))
 }
 
 pub fn get_entry_funding_rate(
-    deps: DepsMut,
+    mut _deps: DepsMut,
     _collateral_token: Addr,
     _index_token: Addr,
     _is_long: bool,
@@ -511,7 +516,7 @@ pub fn get_entry_funding_rate(
 }
 
 pub fn usdToTokenMax(
-    _deps: DepsMut,
+    mut _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
@@ -520,7 +525,7 @@ pub fn usdToTokenMax(
     if (_usdAmount == Uint128::zero()) {
         return Ok(Uint128::zero());
     } else {
-        let price = get_min_price(_deps, _env, _info, _token)?;
+        let price = get_min_price(_deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
         let res = usd_to_token(_deps, &_token, _usdAmount.u128(), price.u128())?;
         Ok(Uint128::new(res))
     }
@@ -539,10 +544,10 @@ pub fn _increaseGuaranteedUsd(
     _collateral_token: Addr,
     _usdamount: Uint128,
 ) -> Result<Response, ContractError> {
-    let mut guaranteedUsd = GUARANTEEUSD.load(deps.storage, _collateral_token)?;
+    let mut guaranteedUsd = GUARANTEEUSD.load(deps.storage, _collateral_token.clone())?;
     guaranteedUsd = guaranteedUsd + _usdamount;
 
-    GUARANTEEUSD.save(deps.storage, _collateral_token, &guaranteedUsd);
+    GUARANTEEUSD.save(deps.storage, _collateral_token.clone(), &guaranteedUsd);
     let mut response = Response::new();
     let event =
         Event::new("_increaseGuaranteedUsd").add_attribute("token", _collateral_token.to_string());
@@ -555,10 +560,10 @@ pub fn _decreaseGuaranteedUsd(
     _collateral_token: Addr,
     _usdamount: Uint128,
 ) -> Result<Response, ContractError> {
-    let mut guaranteedUsd = GUARANTEEUSD.load(deps.storage, _collateral_token)?;
+    let mut guaranteedUsd = GUARANTEEUSD.load(deps.storage, _collateral_token.clone())?;
     guaranteedUsd = guaranteedUsd - _usdamount;
 
-    GUARANTEEUSD.save(deps.storage, _collateral_token, &guaranteedUsd);
+    GUARANTEEUSD.save(deps.storage, _collateral_token.clone(), &guaranteedUsd);
     let mut response = Response::new();
     let event =
         Event::new("_decreaseGuaranteedUsd").add_attribute("token", _collateral_token.to_string());
@@ -572,7 +577,7 @@ pub fn get_next_global_short_average_price(
     _next_price: Uint128,
     _size_delta: Uint128,
 ) -> Result<Uint128, ContractError> {
-    let size = GLOBALSHORTSIZE.load(deps.storage, _index_token)?;
+    let size = GLOBALSHORTSIZE.load(deps.storage, _index_token.clone())?;
 
     let average_price = GLOBALSHORTAVERAGEPRICE.load(deps.storage, _index_token)?;
 
@@ -600,10 +605,10 @@ pub fn _decreaseReservedAmount(
     _token: Addr,
     _amount: Uint128,
 ) -> Result<Response, ContractError> {
-    let mut guaranteedUsd = RESERVEDAMOUNTS.load(deps.storage, _token)?;
+    let mut guaranteedUsd = RESERVEDAMOUNTS.load(deps.storage, _token.clone())?;
     guaranteedUsd = guaranteedUsd - _amount;
 
-    RESERVEDAMOUNTS.save(deps.storage, _token, &guaranteedUsd);
+    RESERVEDAMOUNTS.save(deps.storage, _token.clone(), &guaranteedUsd);
     let mut response = Response::new();
     let event = Event::new("_decreaseReservedAmount").add_attribute("token", _token.to_string());
 
@@ -615,7 +620,7 @@ pub fn _decreaseGlobalShortSize(
     _token: Addr,
     _amount: Uint128,
 ) -> Result<Response, ContractError> {
-    let size = GLOBALSHORTSIZE.load(_deps.storage, _token)?;
+    let size = GLOBALSHORTSIZE.load(_deps.storage, _token.clone())?;
     if _amount > size {
         GLOBALSHORTSIZE.save(_deps.storage, _token, &Uint128::zero());
         return Ok(Response::new());
@@ -639,37 +644,50 @@ pub fn validLiquidation(
 }
 
 pub fn getRedemptionCollateral(
-    _deps: DepsMut,
+    mut _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
 ) -> Result<Uint128, ContractError> {
-    let stableTokens = STABLETOKEN.load(_deps.storage, _token)?;
-    let amount = POOLAMOUNT.load(_deps.storage, _token)?;
+    let stableTokens = STABLETOKEN.load(_deps.storage, _token.clone())?;
+    let amount = POOLAMOUNT.load(_deps.storage, _token.clone())?;
     if stableTokens {
         return Ok(amount);
     }
-    let grantedusd = GUARANTEEUSD.load(_deps.storage, _token)?;
+    let grantedusd = GUARANTEEUSD.load(_deps.storage, _token.clone())?;
 
-    let collateral = usd_to_token_min(_deps, _env, _info, _token, grantedusd.u128())?;
+    let collateral = usd_to_token_min(
+        _deps.branch(),
+        _env,
+        _info.clone(),
+        _token.clone(),
+        grantedusd.u128(),
+    )?;
 
     let _collateral = Uint128::new(collateral);
 
-    let reservedAmounts = RESERVEDAMOUNTS.load(_deps.storage, _token)?;
+    let reservedAmounts = RESERVEDAMOUNTS.load(_deps.storage, _token.clone())?;
     let res: Uint128 = _collateral + amount - reservedAmounts;
 
     Ok(res)
 }
 
 pub fn getRedemptionCollateralUsd(
-    _deps: DepsMut,
+    mut _deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _token: Addr,
 ) -> Result<Uint128, ContractError> {
-    let RedemptionCollateral = getRedemptionCollateral(_deps, _env, _info, _token)?;
+    let RedemptionCollateral =
+        getRedemptionCollateral(_deps.branch(), _env.clone(), _info.clone(), _token.clone())?;
 
-    let res = token_to_usd_min(_deps, _env, _info, _token, RedemptionCollateral.u128())?;
+    let res = token_to_usd_min(
+        _deps.branch(),
+        _env.clone(),
+        _info,
+        _token,
+        RedemptionCollateral.u128(),
+    )?;
     Ok(res)
 }
 
