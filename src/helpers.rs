@@ -284,32 +284,6 @@ pub fn _validateTokens(
     }
 }
 
-pub fn get_position_key(
-    account: Addr,
-    collateral_token: Addr,
-    index_token: Addr,
-    is_long: bool,
-) -> Vec<u8> {
-    // Convert addresses to bytes
-    let account_bytes = account.as_str().as_bytes();
-    let collateral_token_bytes = collateral_token.as_str().as_bytes();
-    let index_token_bytes = index_token.as_str().as_bytes();
-
-    // Calculate the size of the resulting key
-    let key_size = account_bytes.len() + collateral_token_bytes.len() + index_token_bytes.len() + 1;
-
-    // Initialize the key vector with the correct size
-    let mut key = Vec::with_capacity(key_size);
-
-    // Extend the key with the bytes of addresses and the boolean
-    key.extend_from_slice(account_bytes);
-    key.extend_from_slice(collateral_token_bytes);
-    key.extend_from_slice(index_token_bytes);
-    key.push(if is_long { 1 } else { 0 });
-
-    key
-}
-
 pub fn get_next_average_price(
     _deps: DepsMut,
     _env: Env,
@@ -634,4 +608,93 @@ pub fn _decreaseReservedAmount(
     let event = Event::new("_decreaseReservedAmount").add_attribute("token", _token.to_string());
 
     Ok(response.add_event(event))
+}
+
+pub fn _decreaseGlobalShortSize(
+    _deps: DepsMut,
+    _token: Addr,
+    _amount: Uint128,
+) -> Result<Response, ContractError> {
+    let size = GLOBALSHORTSIZE.load(_deps.storage, _token)?;
+    if _amount > size {
+        GLOBALSHORTSIZE.save(_deps.storage, _token, &Uint128::zero());
+        return Ok(Response::new());
+    } else {
+        GLOBALSHORTSIZE.save(_deps.storage, _token, &(size - _amount))?;
+        Ok(Response::new())
+    }
+}
+
+pub fn validLiquidation(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _isLong: bool,
+    _receiver: Addr,
+) -> Result<(Uint128, Uint128), ContractError> {
+    unimplemented!()
+}
+
+pub fn getRedemptionCollateral(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+) -> Result<Uint128, ContractError> {
+    let stableTokens = STABLETOKEN.load(_deps.storage, _token)?;
+    let amount = POOLAMOUNT.load(_deps.storage, _token)?;
+    if stableTokens {
+        return Ok(amount);
+    }
+    let grantedusd = GUARANTEEUSD.load(_deps.storage, _token)?;
+
+    let collateral = usd_to_token_min(_deps, _env, _info, _token, grantedusd.u128())?;
+
+    let _collateral = Uint128::new(collateral);
+
+    let reservedAmounts = RESERVEDAMOUNTS.load(_deps.storage, _token)?;
+    let res: Uint128 = _collateral + amount - reservedAmounts;
+
+    Ok(res)
+}
+
+pub fn getRedemptionCollateralUsd(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+) -> Result<Uint128, ContractError> {
+    let RedemptionCollateral = getRedemptionCollateral(_deps, _env, _info, _token)?;
+
+    let res = token_to_usd_min(_deps, _env, _info, _token, RedemptionCollateral.u128())?;
+    Ok(res)
+}
+
+pub fn getPositionFee(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _isLong: bool,
+    _sizeDelta: Uint128,
+) -> Result<Uint128, ContractError> {
+    unimplemented!()
+}
+
+pub fn getFeeBasisPoints(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _token: Addr,
+    _usdgDelta: Uint128,
+    _feeBasisPoints: Uint128,
+    _taxBasisPoints: Uint128,
+    _increment: bool,
+) -> Result<Uint128, ContractError> {
+    unimplemented!()
 }

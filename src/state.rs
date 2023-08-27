@@ -35,27 +35,27 @@ pub struct Config {
     pub price_feed: Addr,
     pub usdg: Addr,
     pub gov: Addr,
-    pub whitelisted_token_count: Uint256,
+    pub whitelisted_token_count: Uint128,
     pub all_whitelisted_tokens: Vec<Addr>,
-    pub max_leverage: Uint256,
-    pub liquidation_fee_usd: Uint256,
-    pub tax_basis_points: Uint256,
-    pub stable_tax_basis_points: Uint256,
-    pub mint_burn_fee_basis_points: Uint256,
-    pub swap_fee_basis_points: Uint256,
-    pub stable_swap_fee_basis_points: Uint256,
-    pub margin_fee_basis_points: Uint256,
-    pub min_profit_time: Uint256,
+    pub max_leverage: Uint128,
+    pub liquidation_fee_usd: Uint128,
+    pub tax_basis_points: Uint128,
+    pub stable_tax_basis_points: Uint128,
+    pub mint_burn_fee_basis_points: Uint128,
+    pub swap_fee_basis_points: Uint128,
+    pub stable_swap_fee_basis_points: Uint128,
+    pub margin_fee_basis_points: Uint128,
+    pub min_profit_time: Uint128,
     pub has_dynamic_fees: bool,
     pub funding_interval: u128,
     pub funding_rate_factor: u128,
     pub stable_funding_rate_factor: u128,
-    pub total_token_weights: Uint256,
+    pub total_token_weights: Uint128,
     pub include_amm_price: bool,
     pub use_swap_pricing: bool,
     pub in_manager_mode: bool,
     pub in_private_liquidation_mode: bool,
-    pub max_gas_price: Uint256,
+    pub max_gas_price: Uint128,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -64,17 +64,17 @@ pub const ISLIQUIDATOR: Map<Addr, bool> = Map::new("is-liquidator");
 pub const ISMANAGER: Map<Addr, bool> = Map::new("is-manager");
 pub const WHITELISTEDTOKEN: Map<Addr, bool> = Map::new("white-listed-token");
 pub const TOKENDECIMAL: Map<Addr, Uint128> = Map::new("token-decimal");
-pub const MINPROFITBASISPOINT: Map<Addr, Uint256> = Map::new("min-profit-basis-Poinut");
+pub const MINPROFITBASISPOINT: Map<Addr, Uint128> = Map::new("min-profit-basis-Poinut");
 pub const STABLETOKEN: Map<Addr, bool> = Map::new("stable-token");
 pub const SHORTABLETOKEN: Map<Addr, bool> = Map::new("shortable-token");
 
 pub const TOKENBALANCE: Map<Addr, Uint128> = Map::new("token-balance");
-pub const TOKENWEIGHT: Map<Addr, Uint256> = Map::new("tokenWeights");
+pub const TOKENWEIGHT: Map<Addr, Uint128> = Map::new("tokenWeights");
 pub const USDGAMOUNT: Map<Addr, Uint128> = Map::new("usdg-amount");
 pub const MAXUSDGAMOUNT: Map<Addr, Uint128> = Map::new("max-USDG-amount");
 pub const POOLAMOUNT: Map<Addr, Uint128> = Map::new("pool-amount");
 pub const RESERVEDAMOUNTS: Map<Addr, Uint128> = Map::new("reserve - amount");
-pub const BUFFERAMOUNT: Map<Addr, Uint256> = Map::new("buffer-amount");
+pub const BUFFERAMOUNT: Map<Addr, Uint128> = Map::new("buffer-amount");
 pub const GUARANTEEUSD: Map<Addr, Uint128> = Map::new("guarantee-usdt");
 pub const CUMULATIVEFUNDINGRATE: Map<Addr, Uint128> = Map::new("cumulative-funding-rate");
 pub const LASTFUNDINTIME: Map<Addr, u128> = Map::new("lastFundingTimes");
@@ -84,4 +84,4 @@ pub const POSITION: Map<Vec<u8>, Position> = Map::new("position");
 pub const FEERESERVED: Map<Addr, Uint128> = Map::new("fee-reserved");
 pub const GLOBALSHORTSIZE: Map<Addr, Uint128> = Map::new("global-short-size");
 pub const GLOBALSHORTAVERAGEPRICE: Map<Addr, Uint128> = Map::new("global-short-average-price");
-pub const MAXGLOBALSHORTSIZE: Map<Addr, Uint256> = Map::new("max-global-short-size");
+pub const MAXGLOBALSHORTSIZE: Map<Addr, Uint128> = Map::new("max-global-short-size");

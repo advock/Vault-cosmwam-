@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::bank::{get_max_wager, is_asset_whitelisted, pay_in, pay_out};
-use crate::events::DecreasePositionEvent;
+use crate::events::{DecreasePositionEvent, DecreaseReservedAmount};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -14,16 +14,17 @@ use cw_controllers::Admin;
 
 use crate::error::ContractError;
 use crate::helpers::{
-    _collect_margin_fees, _decreaseGuaranteedUsd, _decreasePoolAmount, _decreaseReservedAmount,
-    _decreaseUsdgAmount, _increaseGuaranteedUsd, _increasePoolAmount, _increaseReservedAmount,
-    _increaseUsdgAmount, _validateTokens, balance_cw20_tokens, getBuyUsdgFeeBasisPoints,
-    getSellUsdgFeeBasisPoints, getSwapFeeBasisPoints, get_delta, get_entry_funding_rate,
-    get_max_price, get_min_price, get_next_average_price, get_next_global_short_average_price,
-    get_position_key, token_to_usd_min, transfer_cw20_tokens, updateCumulativeFundingRate,
-    update_token_bal, usdToTokenMax, usd_to_token_min, validate,
+    _collect_margin_fees, _decreaseGlobalShortSize, _decreaseGuaranteedUsd, _decreasePoolAmount,
+    _decreaseReservedAmount, _decreaseUsdgAmount, _increaseGuaranteedUsd, _increasePoolAmount,
+    _increaseReservedAmount, _increaseUsdgAmount, _validateTokens, balance_cw20_tokens,
+    getBuyUsdgFeeBasisPoints, getSellUsdgFeeBasisPoints, getSwapFeeBasisPoints, get_delta,
+    get_entry_funding_rate, get_max_price, get_min_price, get_next_average_price,
+    get_next_global_short_average_price, token_to_usd_min, transfer_cw20_tokens,
+    updateCumulativeFundingRate, update_token_bal, usdToTokenMax, usd_to_token_min,
+    validLiquidation, validate,
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::query::{check_whitelisted_token, get_position, query_config};
+use crate::query::{check_whitelisted_token, get_position, get_position_key, query_config};
 use crate::state::{
     Config, Position, State, ADMIN, BUFFERAMOUNT, CONFIG, CUMULATIVEFUNDINGRATE, FEERESERVED,
     GLOBALSHORTAVERAGEPRICE, GLOBALSHORTSIZE, ISLIQUIDATOR, ISMANAGER, LASTFUNDINTIME,
@@ -36,13 +37,13 @@ const CONTRACT_NAME: &str = "crates.io:vault";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UNINITIALIZED_ADDRESS: &str = "UNINITIALIZED";
 
-const BASIS_POINTS_DIVISOR: Uint128 = Uint128::new(10000);
-const FUNDING_RATE_PRECISION: Uint256 = Uint256::from_u128(1000000);
+pub const BASIS_POINTS_DIVISOR: Uint128 = Uint128::new(10000);
+const FUNDING_RATE_PRECISION: Uint128 = Uint128::new(1000000);
 const PRICE_PRECISION: Uint128 = Uint128::new(10u128.pow(30));
-const MIN_LEVERAGE: Uint256 = Uint256::from_u128(10000);
+const MIN_LEVERAGE: Uint128 = Uint128::new(10000);
 const USDG_DECIMALS: Uint128 = Uint128::new(6);
-const MAX_FEE_BASIS_POINTS: Uint256 = Uint256::from_u128(500);
-const MAX_LIQUIDATION_FEE_USD: Uint256 = Uint256::from_u128(100);
+const MAX_FEE_BASIS_POINTS: Uint128 = Uint128::new(500);
+const MAX_LIQUIDATION_FEE_USD: Uint128 = Uint128::new(100);
 const MIN_FUNDING_RATE_INTERVAL: u128 = 1 * 60 * 60; // 1 hour in seconds
 const MAX_FUNDING_RATE_FACTOR: u128 = 10000;
 
@@ -319,14 +320,14 @@ pub fn setFess(
     _deps: DepsMut,
     api: &dyn Api,
     _info: MessageInfo,
-    _taxBasisPoints: Uint256,
-    _stableTaxBasisPoints: Uint256,
-    _mintBurnFeeBasisPoints: Uint256,
-    _swapFeeBasisPoints: Uint256,
-    _stableSwapFeeBasisPoints: Uint256,
-    _marginFeeBasisPoints: Uint256,
-    _liquidationFeeUsd: Uint256,
-    _minProfitTime: Uint256,
+    _taxBasisPoints: Uint128,
+    _stableTaxBasisPoints: Uint128,
+    _mintBurnFeeBasisPoints: Uint128,
+    _swapFeeBasisPoints: Uint128,
+    _stableSwapFeeBasisPoints: Uint128,
+    _marginFeeBasisPoints: Uint128,
+    _liquidationFeeUsd: Uint128,
+    _minProfitTime: Uint128,
     _hasDynamicFees: bool,
 ) -> Result<Response, ContractError> {
     ADMIN.is_admin(_deps.as_ref(), &_info.sender);
@@ -404,7 +405,7 @@ pub fn setTokenConfig(
 
     let weight = TOKENWEIGHT.load(_deps.storage, _token.clone())?;
 
-    let mut _totalTokenWeights: Uint256 = config.total_token_weights;
+    let mut _totalTokenWeights: Uint128 = config.total_token_weights;
     _totalTokenWeights = _totalTokenWeights - weight;
 
     WHITELISTEDTOKEN.save(_deps.storage, _token.clone(), &true);
@@ -1120,6 +1121,7 @@ pub fn decreasePosition(
     validate(position.size > Uint128::zero(), "err");
     validate(position.size >= _sizeDelta, "err");
     validate(position.collateral >= _collateralDelta, "err");
+    let mut config = CONFIG.load(_deps.storage)?;
 
     let collateral: Uint128 = position.collateral;
     let reserveDelta: Uint128 = position.reserveAmount * _sizeDelta / position.size;
@@ -1161,6 +1163,38 @@ pub fn decreasePosition(
         };
     };
 
+    if (!_isLong) {
+        (_indexToken, _sizeDelta);
+        _decreaseGlobalShortSize(_deps, _indexToken, position.size);
+    }
+    if usdtout > Uint128::zero() {
+        if (_isLong) {
+            _decreasePoolAmount(
+                _deps,
+                _env,
+                _info,
+                _collateralToken,
+                Uint128::new(usd_to_token_min(
+                    _deps,
+                    _env,
+                    _info,
+                    _collateralToken,
+                    config.liquidation_fee_usd.u128(),
+                )?),
+            )?;
+
+            let amount = Uint128::new(usd_to_token_min(
+                _deps,
+                _env,
+                _info,
+                _collateralToken,
+                config.liquidation_fee_usd.u128(),
+            )?);
+            transfer_cw20_tokens(_collateralToken, _env.contract.address, _receiver, amount);
+            return Ok(Response::new().add_attribute("amountafterfees", amount.to_string()));
+        }
+    }
+    POSITION.save(_deps.storage, key, &position);
     let decrease_event = Event::new("decrease_position")
         .add_attribute("account", _account.clone())
         .add_attribute("collateral_token", _collateralToken.clone())
@@ -1259,6 +1293,166 @@ pub fn _reduceCollateral(
     let event = Event::new("update_pnl");
 
     Ok(usdtOut)
+}
+
+pub fn liquidatePosition(
+    mut _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _account: Addr,
+    _collateralToken: Addr,
+    _indexToken: Addr,
+    _isLong: bool,
+    _receiver: Addr,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(_deps.storage)?;
+    if config.in_private_liquidation_mode {
+        let isliq = ISLIQUIDATOR.load(_deps.storage, _info.sender)?;
+        validate(isliq, "error_message");
+    }
+
+    config.include_amm_price = false;
+    _updateCumulativeFundingRate(_deps, _env, _info, _collateralToken, _indexToken)?;
+
+    let key = get_position_key(_account, _collateralToken, _indexToken, _isLong);
+
+    let mut position = get_position(_deps.as_ref(), key)?;
+    validate(position.size > Uint128::zero(), "error_message");
+
+    let liquidationState: Uint128;
+    let marginFees: Uint128;
+    (liquidationState, marginFees) = validLiquidation(
+        _deps,
+        _env,
+        _info,
+        _account,
+        _collateralToken,
+        _indexToken,
+        _isLong,
+        _receiver,
+    )?;
+
+    validate(liquidationState != Uint128::zero(), "errr");
+
+    if liquidationState == Uint128::new(2) {
+        decreasePosition(
+            _deps,
+            _env,
+            _info,
+            _account,
+            _collateralToken,
+            _indexToken,
+            Uint128::zero(),
+            position.size,
+            _isLong,
+            _account,
+        );
+
+        config.include_amm_price = true;
+        return Ok(Response::new());
+    }
+
+    let feeTokens = usd_to_token_min(_deps, _env, _info, _collateralToken, marginFees.u128())?;
+    let feeReserves = FEERESERVED.load(_deps.storage, _collateralToken)?;
+    FEERESERVED.save(
+        _deps.storage,
+        _collateralToken,
+        &(feeReserves + Uint128::new(feeTokens)),
+    )?;
+    let event = Event::new("collect_margin_fees")
+        .add_attribute("collateral_token", _collateralToken.to_string())
+        .add_attribute("margin_fees", marginFees.to_string())
+        .add_attribute("fee_tokens", feeTokens.to_string());
+
+    _decreaseReservedAmount(_deps, _collateralToken, position.reserveAmount)?;
+
+    if _isLong {
+        _decreaseGuaranteedUsd(_deps, _collateralToken, position.size - position.collateral);
+        _decreasePoolAmount(
+            _deps,
+            _env,
+            _info,
+            _collateralToken,
+            Uint128::new(usd_to_token_min(
+                _deps,
+                _env,
+                _info,
+                _collateralToken,
+                marginFees.u128(),
+            )?),
+        )?;
+    }
+
+    let markPrice: Uint128;
+    if _isLong {
+        markPrice = get_min_price(_deps, _env, _info, _indexToken)?;
+    } else {
+        markPrice = get_max_price(_deps, _env, _info, _indexToken)?;
+    }
+    let event = Event::new("collect_margin_fees")
+        .add_attribute("collateral_token", _collateralToken)
+        .add_attribute("margin_fees", marginFees.to_string())
+        .add_attribute("fee_tokens", feeTokens.to_string());
+
+    if !_isLong && marginFees < position.collateral {
+        let remaining_collateral = position.collateral.checked_sub(marginFees).unwrap();
+
+        let usd_to_token_min = usd_to_token_min(
+            _deps,
+            _env,
+            _info,
+            _collateralToken,
+            remaining_collateral.u128(),
+        )?;
+
+        _increasePoolAmount(
+            _deps,
+            _env,
+            _info,
+            _collateralToken,
+            Uint128::new(usd_to_token_min),
+        )?;
+    }
+
+    if _isLong {
+        _decreaseGlobalShortSize(_deps, _indexToken, position.size);
+    }
+
+    let amount = usd_to_token_min(
+        _deps,
+        _env,
+        _info,
+        _collateralToken,
+        config.liquidation_fee_usd.u128(),
+    )?;
+
+    _decreasePoolAmount(_deps, _env, _info, _collateralToken, Uint128::new(amount));
+
+    transfer_cw20_tokens(
+        _collateralToken,
+        _env.contract.address,
+        _receiver,
+        Uint128::new(amount),
+    )?;
+
+    config.include_amm_price = true;
+
+    CONFIG.save(_deps.storage, &config);
+    POSITION.save(_deps.storage, key, &position);
+
+    Ok(Response::new().add_event(event))
+}
+
+pub fn get_Utilisationsition_key(_deps: DepsMut, _token: Addr) -> Result<Uint128, ContractError> {
+    let poolAmount = POOLAMOUNT.load(_deps.storage, _token)?;
+
+    if poolAmount > Uint128::zero() {
+        return Ok(Uint128::zero());
+    }
+    let reservedAmounts = RESERVEDAMOUNTS.load(_deps.storage, _token)?;
+    let res: Uint128 = reservedAmounts * FUNDING_RATE_PRECISION / poolAmount;
+
+    Ok(res)
 }
 
 #[cfg(test)]

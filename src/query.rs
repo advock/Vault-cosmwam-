@@ -2,7 +2,16 @@ use cosmwasm_std::{
     Addr, Binary, Deps, DepsMut, Env, Int128, MessageInfo, Response, StdError, StdResult, Uint128,
 };
 
-use crate::state::{Config, Position, CONFIG, ISMANAGER, POSITION, WHITELISTEDTOKEN};
+use crate::contract::BASIS_POINTS_DIVISOR;
+
+use crate::{
+    helpers::validate,
+    state::{
+        Config, Position, CONFIG, ISMANAGER, POOLAMOUNT, POSITION, RESERVEDAMOUNTS,
+        WHITELISTEDTOKEN,
+    },
+    ContractError,
+};
 
 pub fn query_config(_deps: Deps) -> StdResult<Config> {
     let res = CONFIG.may_load(_deps.storage)?;
@@ -62,4 +71,47 @@ pub fn get_position(_deps: Deps, key: Vec<u8>) -> StdResult<Position> {
             lastIncreasedTime: Default::default(), // Set default value for Uint256
         })),
     }
+}
+
+pub fn get_position_key(
+    account: Addr,
+    collateral_token: Addr,
+    index_token: Addr,
+    is_long: bool,
+) -> Vec<u8> {
+    // Convert addresses to bytes
+    let account_bytes = account.as_str().as_bytes();
+    let collateral_token_bytes = collateral_token.as_str().as_bytes();
+    let index_token_bytes = index_token.as_str().as_bytes();
+
+    // Calculate the size of the resulting key
+    let key_size = account_bytes.len() + collateral_token_bytes.len() + index_token_bytes.len() + 1;
+
+    // Initialize the key vector with the correct size
+    let mut key = Vec::with_capacity(key_size);
+
+    // Extend the key with the bytes of addresses and the boolean
+    key.extend_from_slice(account_bytes);
+    key.extend_from_slice(collateral_token_bytes);
+    key.extend_from_slice(index_token_bytes);
+    key.push(if is_long { 1 } else { 0 });
+
+    key
+}
+
+pub fn get_position_leverage(
+    _deps: DepsMut,
+    account: Addr,
+    collateral_token: Addr,
+    index_token: Addr,
+    is_long: bool,
+) -> StdResult<Uint128> {
+    let key = get_position_key(account, collateral_token, index_token, is_long);
+
+    let position = POSITION.load(_deps.storage, key)?;
+    validate(position.collateral > Uint128::zero(), "err");
+
+    let res: Uint128 = position.size * BASIS_POINTS_DIVISOR / position.collateral;
+
+    Ok(res)
 }
